@@ -7,9 +7,16 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, LearningRateScheduler
 from tensorflow.keras.metrics import Precision, Recall
 import matplotlib.pyplot as plt
-
+from tensorflow.keras.mixed_precision import set_global_policy
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+# Enable mixed precision for faster training
+set_global_policy('mixed_float16')
+
+# Multi-GPU strategy
+import tensorflow as tf
+strategy = tf.distribute.MirroredStrategy()
 
 # Step 1: Dataset Generation
 def generate_keystreams(num_streams, key_length):
@@ -37,31 +44,32 @@ y = to_categorical(keystreams[:, -1], num_classes=256)
 X_train, X_val = X[:800000], X[800000:]
 y_train, y_val = y[:800000], y[800000:]
 
-# Step 3: Model Design
-# Define the LSTM model architecture
-model = Sequential()
+# Step 3: Model Design with strategy scope for multi-GPU
+with strategy.scope():
+    # Define the LSTM model architecture
+    model = Sequential()
 
-# Adding the first LSTM layer with 128 units and Dropout
-model.add(LSTM(128, input_shape=(255, 1), return_sequences=True, dropout=0.2, recurrent_dropout=0.2))
+    # Adding the first LSTM layer with 128 units and Dropout
+    model.add(LSTM(128, input_shape=(255, 1), return_sequences=True, dropout=0.2, recurrent_dropout=0.2))
 
-# Adding a second LSTM layer with 128 units and Dropout
-model.add(LSTM(128, return_sequences=True, dropout=0.2, recurrent_dropout=0.2))
+    # Adding a second LSTM layer with 128 units and Dropout
+    model.add(LSTM(128, return_sequences=True, dropout=0.2, recurrent_dropout=0.2))
 
-# Adding a third LSTM layer with 128 units and Dropout
-model.add(LSTM(128, dropout=0.2, recurrent_dropout=0.2))
+    # Adding a third LSTM layer with 128 units and Dropout
+    model.add(LSTM(128, dropout=0.2, recurrent_dropout=0.2))
 
-# Output layer with 256 units (one for each possible byte value) and softmax activation
-model.add(Dense(256, activation='softmax'))
+    # Output layer with 256 units (one for each possible byte value) and softmax activation
+    model.add(Dense(256, activation='softmax'))
 
-# Learning rate schedule function
-def lr_schedule(epoch):
-    initial_lr = 0.001
-    drop = 0.5
-    epochs_drop = 10
-    return initial_lr * (drop ** np.floor((1 + epoch) / epochs_drop))
+    # Learning rate schedule function
+    def lr_schedule(epoch):
+        initial_lr = 0.001
+        drop = 0.5
+        epochs_drop = 10
+        return initial_lr * (drop ** np.floor((1 + epoch) / epochs_drop))
 
-# Compile the model with categorical crossentropy loss, Adam optimizer, and additional metrics
-model.compile(optimizer=Adam(), loss='categorical_crossentropy', metrics=['accuracy', Precision(), Recall()])
+    # Compile the model with categorical crossentropy loss, Adam optimizer, and additional metrics
+    model.compile(optimizer=Adam(), loss='categorical_crossentropy', metrics=['accuracy', Precision(), Recall()])
 
 # Step 4: Callbacks for training
 early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
@@ -69,7 +77,7 @@ checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss', save_best_only
 lr_scheduler = LearningRateScheduler(lr_schedule)
 
 # Train the model
-history = model.fit(X_train, y_train, epochs=50, batch_size=64, 
+history = model.fit(X_train, y_train, epochs=50, batch_size=256, 
                     validation_data=(X_val, y_val), 
                     callbacks=[early_stopping, checkpoint, lr_scheduler])
 
