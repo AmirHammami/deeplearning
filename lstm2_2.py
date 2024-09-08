@@ -77,7 +77,7 @@ checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss', save_best_only
 lr_scheduler = LearningRateScheduler(lr_schedule)
 
 # Train the model
-history = model.fit(X_train, y_train, epochs=50, batch_size=256, 
+history = model.fit(X_train, y_train, epochs=50, batch_size=128, 
                     validation_data=(X_val, y_val), 
                     callbacks=[early_stopping, checkpoint, lr_scheduler])
 
